@@ -1223,14 +1223,14 @@ type noopSaveEnvManager struct {
 }
 
 func (*noopSaveEnvManager) Save(
-	_ context.Context, _ *environment.Environment,
+	_ context.Context, _ environment.Persistence,
 ) error {
 	return nil
 }
 
 func (*noopSaveEnvManager) SaveWithOptions(
 	_ context.Context,
-	_ *environment.Environment,
+	_ environment.Persistence,
 	_ *environment.SaveOptions,
 ) error {
 	return nil

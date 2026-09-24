@@ -14,38 +14,10 @@ import (
 	"github.com/azure/azure-dev/cli/azd/pkg/azsdk/storage"
 	"github.com/azure/azure-dev/cli/azd/pkg/config"
 	"github.com/azure/azure-dev/cli/azd/test/mocks"
+	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
-
-func TestStorageBlobReloadFailurePreservesState(t *testing.T) {
-	for _, tt := range []struct {
-		name   string
-		dotenv string
-		config string
-		want   string
-	}{
-		{name: "malformed dotenv", dotenv: "invalid='", want: "loading .env"},
-		{name: "invalid config", dotenv: "VALUE=on-disk", config: "{invalid", want: "loading config"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			client := &MockBlobClient{}
-			store := NewStorageBlobDataStore(config.NewManager(), client)
-			env := New("test")
-			env.DotenvSet("VALUE", "in-memory")
-			env.DotenvDelete("PENDING")
-			client.On("Download", t.Context(), "test/.env").
-				Return(io.NopCloser(strings.NewReader(tt.dotenv)), nil).Once()
-			client.On("Download", t.Context(), "test/config.json").
-				Return(io.NopCloser(strings.NewReader(tt.config)), nil).Maybe()
-
-			require.ErrorContains(t, store.Reload(t.Context(), env), tt.want)
-			require.Equal(t, "in-memory", env.Getenv("VALUE"))
-			require.Contains(t, env.deletedKeys, "PENDING")
-			client.AssertExpectations(t)
-		})
-	}
-}
 
 var validBlobItems []*storage.Blob = []*storage.Blob{
 	{
@@ -145,6 +117,76 @@ func Test_StorageBlobDataStore_ConfigPath(t *testing.T) {
 	actual := dataStore.ConfigPath(env)
 
 	require.Equal(t, expected, actual)
+}
+
+func TestStorageBlobPersistenceThroughView(t *testing.T) {
+	client := &MockBlobClient{}
+	store := NewStorageBlobDataStore(config.NewManager(), client)
+	raw := NewWithValues("test", map[string]string{"LD_PRELOAD": "preserved", "VALUE": "01"})
+	view := persistenceOnlyView{raw}
+	require.NoError(t, raw.Config().Set("value", "before"))
+	client.On("Upload", t.Context(), "test/config.json", mock.Anything).
+		Run(func(args mock.Arguments) {
+			// Both uploads must use the same snapshot even if live state changes.
+			raw.DotenvSet("VALUE", "after")
+			require.NoError(t, raw.Config().Set("value", "after"))
+		}).Return(nil).Once()
+	client.On("Upload", t.Context(), "test/.env", mock.Anything).
+		Run(func(args mock.Arguments) {
+			reader, ok := args.Get(2).(io.Reader)
+			require.True(t, ok)
+			values, err := godotenv.Parse(reader)
+			require.NoError(t, err)
+			require.Equal(t, "01", values["VALUE"])
+			require.Equal(t, "preserved", values["LD_PRELOAD"])
+		}).Return(nil).Once()
+	require.NoError(t, store.Save(t.Context(), view, nil))
+
+	client.On("Download", t.Context(), "test/.env").
+		Return(io.NopCloser(strings.NewReader("VALUE=loaded\nLD_PRELOAD=preserved\n")), nil).Once()
+	client.On("Download", t.Context(), "test/config.json").
+		Return(io.NopCloser(strings.NewReader(`{"value":"loaded"}`)), nil).Once()
+	configView := raw.Config()
+	require.NoError(t, store.Reload(t.Context(), view))
+	require.Equal(t, "loaded", raw.Getenv("VALUE"))
+	require.NotContains(t, raw.Dotenv(), "LD_PRELOAD")
+	value, found := configView.GetString("value")
+	require.True(t, found)
+	require.Equal(t, "loaded", value)
+	client.AssertExpectations(t)
+}
+
+func TestStorageBlobReloadFailurePreservesState(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		dotenv string
+		config string
+		err    string
+	}{
+		{name: "dotenv", dotenv: "invalid='", err: "loading .env"},
+		{name: "config", dotenv: "VALUE=loaded", config: "{invalid", err: "loading config"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &MockBlobClient{}
+			store := NewStorageBlobDataStore(config.NewManager(), client)
+			env := NewWithValues("test", map[string]string{"VALUE": "memory"})
+			env.DotenvDelete("deleted")
+			require.NoError(t, env.Config().Set("value", "memory"))
+			client.On("Download", t.Context(), "test/.env").
+				Return(io.NopCloser(strings.NewReader(tt.dotenv)), nil).Once()
+			if tt.config != "" {
+				client.On("Download", t.Context(), "test/config.json").
+					Return(io.NopCloser(strings.NewReader(tt.config)), nil).Once()
+			}
+			require.ErrorContains(t, store.Reload(t.Context(), env), tt.err)
+			require.Equal(t, "memory", env.Getenv("VALUE"))
+			value, found := env.Config().GetString("value")
+			require.True(t, found)
+			require.Equal(t, "memory", value)
+			require.Contains(t, env.deletedKeys, "deleted")
+			client.AssertExpectations(t)
+		})
+	}
 }
 
 type MockBlobClient struct {

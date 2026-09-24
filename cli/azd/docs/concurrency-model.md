@@ -158,12 +158,47 @@ endpoint URL.
 
 | Lock                     | Protects                                          | Acquired by                                                                |
 |--------------------------|---------------------------------------------------|----------------------------------------------------------------------------|
-| `mu sync.RWMutex`        | `dotenv map[string]string`, `deletedKeys`         | `Getenv`, `LookupEnv`, `Dotenv`, `DotenvSet`, `DotenvDelete`, `Reload`, all helpers |
+| `mu sync.RWMutex`        | Identity, dotenv, deletion tracking, and environment config | Variable access, `Config()` operations, `SnapshotState`, `ReplaceState`, `MergeAndSave` |
 
 **Contract**: All readers acquire `mu.RLock()`; all writers acquire `mu.Lock()`.
 Iteration over the underlying map (e.g. snapshotting for a hook) must hold
 the lock for the duration of the iteration — do not release the lock and
 then range over a captured map reference.
+
+Environment state is accessed through two boundaries:
+
+- `Env` exposes variable access and the synchronized `Config()` view.
+- `Persistence` exposes the stored identity and raw state operations. Provider
+  views must delegate this capability unchanged, without translating names.
+
+`SnapshotState` returns detached dotenv and config data. It includes loader
+variables that `Dotenv()` filters out, excludes process-environment fallback
+values, and preserves unresolved secret references and vault state.
+`ReplaceState` installs a detached copy in the same environment and clears pending
+deletions. Explicit reload discards pending in-memory changes; it is not a merge.
+Stores load and validate both files before replacing any state.
+
+`Config()` returns a stable view, not the underlying config object. Retained views
+continue to operate on the current config after reload. Config reads and writes
+use the environment lock; returned maps/slices and mutable values supplied to
+`Set` are detached. Reads, including secret resolution and cloning, use the read
+lock; `Set`, `SetSecret`, and `Unset` use the exclusive lock.
+Use `Config().Set`/`Unset` to modify config, rather than mutating values returned
+by `Raw` or `Get`.
+
+`FileConfigManager.Save` accepts these views and snapshots them before acquiring
+its own lock. This preserves unsaved secrets and keeps the lock order consistent
+with environment saves: environment lock, then file-manager lock.
+
+`PersistenceName()` returns the stored identity without `Name()`'s lazy fallback.
+Persistence paths must not use provider-mapped variables to choose a directory
+or blob name.
+
+Dev Center reload updates a detached snapshot, then replaces the live state only
+after configuration sync and output retrieval succeed. Discovered platform
+settings are also kept in a private copy until the environment update succeeds,
+so a failed reload leaves both sets of live data unchanged. Settings obtained
+from prompts are still copied into the environment on a successful retry.
 
 **Why it matters**: `Environment` is shared across parallel layer provision
 steps, parallel service deploy steps, and pre/post-provision/-deploy hooks.
@@ -180,11 +215,26 @@ and Go's runtime will panic on a concurrent map write.
 | `saveMu sync.Mutex`        | The .env file write critical section                  | `Save` (held across read → merge → write to prevent torn writes)  |
 
 **Save path in `local_file_data_store.Save()`**: The reload-merge-write
-cycle snapshots `dotenv`/`deletedKeys` under `env.mu.RLock()`, calls
-`reloadLocked` (which acquires `env.mu` internally via `replaceState`),
-then overlays the snapshot and replays deletions under `env.mu.Lock()`.
-This ensures the overlay writes don't race with concurrent `DotenvSet`/
-`DotenvDelete` calls from parallel service publishes.
+cycle reads disk values under the file lock without modifying live state, then
+calls `MergeAndSave`. That operation holds `env.mu.Lock()` across merging the
+current in-memory values and deletions, writing config and dotenv, and committing
+the merged dotenv. Setters that arrive during the write wait and remain pending
+afterward. On write failure, live state and deletion tracking remain unchanged;
+only a successful write acknowledges pending deletions.
+
+The `MergeAndSave` writer callback receives detached state. It must not call the
+environment (including `Config()` methods) or re-enter manager/local-store
+`Save`/`Reload` paths that reacquire `manager.saveMu` or the `.env` flock. It may
+call `FileConfigManager.Save` with detached `state.Config`; that mutex is acquired
+after `env.mu`. Compute paths before entering the callback. The lock is
+deliberately held during I/O; separate snapshot and commit locks would allow
+intervening writes to be lost.
+
+The dotenv write still uses a sibling temporary file and atomic rename.
+Config and dotenv are not a single transactional file pair: a later failure can
+leave config written while dotenv is unchanged. In-memory state is retained so
+the operation can be retried. Blob saves serialize one detached snapshot, so both
+uploads describe the same captured state, but the uploads are not atomic together.
 
 **Contract**: `cacheMu` ensures every caller asking for env "X" gets the
 **same** `*Environment` instance — without this, parallel deploy steps would
@@ -264,16 +314,19 @@ both attempt initialization; the lock ensures only one succeeds.
 ## Lock Acquisition Order
 
 Consistent lock ordering prevents deadlocks. The environment persistence path
-uses a three-level hierarchy:
+uses this nested hierarchy for local saves:
 
 ```text
-1. manager.saveMu        (in-process sync.Mutex — serializes goroutines)
-2. local flock            (cross-process OS file lock — serializes processes)
-3. env.mu                 (per-Environment sync.RWMutex — protects in-memory map)
+1. manager.saveMu         (in-process sync.Mutex — serializes goroutines)
+2. local flock             (cross-process OS file lock — serializes processes)
+3. env.mu                  (per-Environment sync.RWMutex)
+4. fileConfigManager.mu    (in-process config save mutex, acquired under env.mu)
 ```
 
-Every code path that persists or reloads environment state acquires these locks
-**in the order above**. Never acquire an outer lock while holding an inner one.
+A Manager-mediated local Save takes all four locks. Reload takes the first three;
+config loading does not acquire `fileConfigManager.mu`. Paths that acquire only a
+subset must preserve this relative order. Never acquire an outer lock while
+holding an inner one.
 
 ### Why subprocess hooks cannot deadlock
 
@@ -283,30 +336,24 @@ subprocesses concurrently. Each subprocess is a separate OS process with its **o
 
 Cross-process serialization is handled entirely by **flock** (the OS-level file
 lock on the `.env.lock` file). Within each subprocess the same acquisition order
-applies (saveMu → flock → env.mu), but since saveMu is per-process and never
-shared across process boundaries, circular wait is impossible.
+applies: Save uses saveMu → flock → env.mu → fileConfigManager.mu, while Reload
+stops at env.mu. Since saveMu is per-process and never shared across process
+boundaries, circular wait is impossible.
 
 ```text
-┌─────────────────────────────────────────────┐
-│ Parent azd process                          │
-│                                             │
-│  goroutine A: saveMu → flock → env.mu      │
-│  goroutine B: saveMu → flock → env.mu      │
-│  (saveMu serializes A and B)               │
-└─────────────────────────────────────────────┘
+Parent azd process (saveMu serializes goroutines A and B):
+  goroutine A: saveMu -> flock -> env.mu -> fileConfigManager.mu
+  goroutine B: saveMu -> flock -> env.mu -> fileConfigManager.mu
 
-┌─────────────────────────────────────────────┐
-│ Hook subprocess 1 (`azd env set FOO=bar`)   │
-│  main goroutine: saveMu → flock → env.mu   │
-└─────────────────────────────────────────────┘
+Hook subprocess 1 (azd env set FOO=bar):
+  main: saveMu -> flock -> env.mu -> fileConfigManager.mu
 
-┌─────────────────────────────────────────────┐
-│ Hook subprocess 2 (`azd env set BAZ=qux`)   │
-│  main goroutine: saveMu → flock → env.mu   │
-└─────────────────────────────────────────────┘
+Hook subprocess 2 (azd env set BAZ=qux):
+  main: saveMu -> flock -> env.mu -> fileConfigManager.mu
 
 Across processes, only flock provides mutual exclusion.
-Within a process, saveMu prevents goroutine interleaving.
+Within a process, saveMu serializes Save/Reload; fileConfigManager.mu
+protects the config write beneath env.mu.
 ```
 
 ### What is held during subprocess invocations
