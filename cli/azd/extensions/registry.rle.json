@@ -1077,7 +1077,7 @@
           "breakingChanges": true
         },
         {
-          "version": "0.8.45-preview",
+          "version": "0.8.44-preview",
           "capabilities": [
             "custom-commands",
             "metadata"
@@ -1129,50 +1129,50 @@
             "darwin/amd64": {
               "checksum": {
                 "algorithm": "sha256",
-                "value": "512665f9599c79e0b4898ae75df5a9c4f67f3afe16edd7195b5b1881670204ce"
+                "value": "060af636e7eb5ffc7d786ab9bc895eaba92a72e10bb12ec89b61426d776b2914"
               },
               "entryPoint": "azure-ai-rle-darwin-amd64",
-              "url": "https://raw.githubusercontent.com/Azure/azure-dev/rle-releases/cli/azd/extensions/azure.ai.rle/artifacts/0.8.45-preview/azure-ai-rle-darwin-amd64.zip"
+              "url": "https://raw.githubusercontent.com/Azure/azure-dev/rle-releases/cli/azd/extensions/azure.ai.rle/artifacts/0.8.44-preview/azure-ai-rle-darwin-amd64.zip"
             },
             "darwin/arm64": {
               "checksum": {
                 "algorithm": "sha256",
-                "value": "c8c5cfa96bb1c383261e69344635fdf70c9d7a0c2f7c39af5e2ef887dba20e8c"
+                "value": "4edddb9c9152abf70021f479b52a47c07fa09cb466d39c6b9fe3035f994cf171"
               },
               "entryPoint": "azure-ai-rle-darwin-arm64",
-              "url": "https://raw.githubusercontent.com/Azure/azure-dev/rle-releases/cli/azd/extensions/azure.ai.rle/artifacts/0.8.45-preview/azure-ai-rle-darwin-arm64.zip"
+              "url": "https://raw.githubusercontent.com/Azure/azure-dev/rle-releases/cli/azd/extensions/azure.ai.rle/artifacts/0.8.44-preview/azure-ai-rle-darwin-arm64.zip"
             },
             "linux/amd64": {
               "checksum": {
                 "algorithm": "sha256",
-                "value": "e8ebcd466a90bfbb7df6bc48aac6c9f7401164d6a81425cdb46d0d6b65e8f9dd"
+                "value": "24a87561654da0228c7c28e4e2f0c0f7119752f100d7b35ca71260082851406b"
               },
               "entryPoint": "azure-ai-rle-linux-amd64",
-              "url": "https://raw.githubusercontent.com/Azure/azure-dev/rle-releases/cli/azd/extensions/azure.ai.rle/artifacts/0.8.45-preview/azure-ai-rle-linux-amd64.tar.gz"
+              "url": "https://raw.githubusercontent.com/Azure/azure-dev/rle-releases/cli/azd/extensions/azure.ai.rle/artifacts/0.8.44-preview/azure-ai-rle-linux-amd64.tar.gz"
             },
             "linux/arm64": {
               "checksum": {
                 "algorithm": "sha256",
-                "value": "2154e0282a428d923115c06eabd19fc8303c0a20fe7bace3e5e9b16941139855"
+                "value": "94184bdc894c2a5f9c0f339784d22b67a916d7078ed6d32826a9b47ab5f6ba4c"
               },
               "entryPoint": "azure-ai-rle-linux-arm64",
-              "url": "https://raw.githubusercontent.com/Azure/azure-dev/rle-releases/cli/azd/extensions/azure.ai.rle/artifacts/0.8.45-preview/azure-ai-rle-linux-arm64.tar.gz"
+              "url": "https://raw.githubusercontent.com/Azure/azure-dev/rle-releases/cli/azd/extensions/azure.ai.rle/artifacts/0.8.44-preview/azure-ai-rle-linux-arm64.tar.gz"
             },
             "windows/amd64": {
               "checksum": {
                 "algorithm": "sha256",
-                "value": "d696fad4a80daceb9d6efe1652fa0a127d5ef67c87dfd7ac78a1ed7dde8a82b0"
+                "value": "b51dcecc9fc06b987cc1cecdf8f123b39defaad2e35abb51ee6a7ceb846702ef"
               },
               "entryPoint": "azure-ai-rle-windows-amd64.exe",
-              "url": "https://raw.githubusercontent.com/Azure/azure-dev/rle-releases/cli/azd/extensions/azure.ai.rle/artifacts/0.8.45-preview/azure-ai-rle-windows-amd64.zip"
+              "url": "https://raw.githubusercontent.com/Azure/azure-dev/rle-releases/cli/azd/extensions/azure.ai.rle/artifacts/0.8.44-preview/azure-ai-rle-windows-amd64.zip"
             },
             "windows/arm64": {
               "checksum": {
                 "algorithm": "sha256",
-                "value": "4b6fcea5e9847e73160153f5c5ce6c8aed01d024a2a4d8825e11dbfc0ccc531c"
+                "value": "8e4f2fe6c1f9c37092308bcb312e36dff916e0c8f2b074c9787ef7bcbbe11c7a"
               },
               "entryPoint": "azure-ai-rle-windows-arm64.exe",
-              "url": "https://raw.githubusercontent.com/Azure/azure-dev/rle-releases/cli/azd/extensions/azure.ai.rle/artifacts/0.8.45-preview/azure-ai-rle-windows-arm64.zip"
+              "url": "https://raw.githubusercontent.com/Azure/azure-dev/rle-releases/cli/azd/extensions/azure.ai.rle/artifacts/0.8.44-preview/azure-ai-rle-windows-arm64.zip"
             }
           },
           "breakingChanges": true
